@@ -3,6 +3,16 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdatomic.h>
+#include <stdint.h>
+
+static atomic_uint cheat_flags;
+
+int rt_infinite_arrows(void) { return atomic_load(&cheat_flags) & 1u; }
+
+int32_t rt_protected_life(int32_t current, int32_t proposed) {
+    return (atomic_load(&cheat_flags) & 2u) && proposed < current ? current : proposed;
+}
 
 #ifdef __ANDROID__
 #include <ctype.h>
@@ -107,6 +117,8 @@ static void walk(const char *root, const char *rel, int rank) {
     struct dirent *e;
     while ((e = readdir(d))) {
         if (e->d_name[0] == '.') continue;
+        if (!rel[0] && (!strcmp(e->d_name, "botw-infinite-arrows.cheat") ||
+                        !strcmp(e->d_name, "botw-protected-life.cheat"))) continue;
         char r2[1024], h2[1200];
         snprintf(r2, sizeof r2, "%s%s%s", rel, rel[0] ? "/" : "", e->d_name);
         snprintf(h2, sizeof h2, "%s/%s", root, r2);
@@ -125,6 +137,7 @@ static int by_rel(const void *a, const void *b) {
 }
 
 void mods_scan(void) {
+    unsigned enabled_cheats = 0;
     int was = cur;
     for (cur = 0; cur < 2; cur++) {
         for (int i = 0; i < nfiles; i++) free(files[i].rel), free(files[i].host);
@@ -142,11 +155,20 @@ void mods_scan(void) {
         char base[1024], root[1100];
         if (!mod_base(m[i].name, base, sizeof base)) continue;
         snprintf(root, sizeof root, "%s/romfs", base);
+        if (!cur) {
+            char marker[1200];
+            struct stat info;
+            snprintf(marker, sizeof marker, "%s/romfs/botw-infinite-arrows.cheat", base);
+            if (!stat(marker, &info) && S_ISREG(info.st_mode)) enabled_cheats |= 1u;
+            snprintf(marker, sizeof marker, "%s/romfs/botw-protected-life.cheat", base);
+            if (!stat(marker, &info) && S_ISREG(info.st_mode)) enabled_cheats |= 2u;
+        }
         walk(root, "", i);
         LOG("[mods] %s: %d files%s\n", m[i].name, nfiles - before, cur ? " (the DLC's)" : "");
     }
     for (cur = 0; cur < 2; cur++) qsort(files, nfiles, sizeof *files, by_rel);
     cur = was;
+    atomic_store(&cheat_flags, enabled_cheats);
 }
 
 bool mods_romfs_override(const char *path, char *out, size_t cap) {

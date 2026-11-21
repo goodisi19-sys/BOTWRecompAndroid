@@ -32,6 +32,31 @@ BUILD_1_8_2 = 'de0b6ac4efc1dda7f80f6d7598ec7a7d'
 BUILD_1_9_0 = 'cd57b23fa4bbad65803d9788c01821ee'
 
 
+# BOTW 1.8.2: only the bow's shot stops consuming arrows; inventory selection stays intact.
+def _infinite_arrows_182(gen, a):
+    assert gen.nso.u32(a - gen.base) == 0xd101c3ff  # sub sp, sp, #0x70
+    return '{ extern int rt_infinite_arrows(void); if (rt_infinite_arrows()) return; c->sp -= 0x70; }'
+
+
+def _protected_life_182(gen, a):
+    word = gen.nso.u32(a - gen.base)
+    assert word in (0xb90002b9, 0xb90002a8)
+    reg = word & 31
+    update_copy = 'ST32(c->sp + 12, life);' if reg == 25 else ''
+    return (f'{{ extern int32_t rt_protected_life(int32_t, int32_t); '
+            f'uint32_t original = (uint32_t)c->x[{reg}]; '
+            f'uint32_t life = (uint32_t)rt_protected_life(LD32(c->x[21]), original); '
+            f'if (life != original) {{ c->x[{reg}] = life; {update_copy} }} '
+            f'ST32(c->x[21], life); }}')
+
+
+PATCHES_182.update({
+    0x7000c80544: _infinite_arrows_182,
+    0x7000bb18c4: _protected_life_182,
+    0x7000bb1990: _protected_life_182,
+})
+
+
 def _clustered_dl_heap_null(gen, a):
     w = struct.unpack_from('<I', gen.nso.image, a - gen.base)[0]
     assert w == 0xf9400008, hex(w)  # ldr x8, [x0]
